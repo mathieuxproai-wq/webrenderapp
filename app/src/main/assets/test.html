@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<!-- Titre exact attendu par le protocole de test (Section 4.4) -->
+<title>Hyperframe PoC Ready</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #05060a;
+    overflow: hidden;
+  }
+  #stage {
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+  #hud {
+    position: fixed; left: 0; right: 0; top: 0;
+    padding: 18px 22px;
+    font-family: "Roboto Mono", "DejaVu Sans Mono", "Courier New", monospace;
+    color: #eaf2ff;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, .85);
+    pointer-events: none;
+    z-index: 2;
+  }
+  #hud .title {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    color: #7cf6ff;
+  }
+  #hud .line { font-size: 18px; margin-top: 6px; opacity: .95; }
+  #hud .badge { color: #9dff8a; }
+  #bottom {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 14px 22px;
+    font-family: "Roboto Mono", "DejaVu Sans Mono", "Courier New", monospace;
+    font-size: 14px;
+    color: rgba(234, 242, 255, .78);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, .9);
+    pointer-events: none;
+    z-index: 2;
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div id="hud">
+  <div class="title">Hyperframe PoC Ready</div>
+  <div class="line">Frames: <span id="frames">0</span> &nbsp;·&nbsp; FPS: <span id="fps">0</span> &nbsp;<span class="badge" id="badge">● LIVE</span></div>
+  <div class="line">Chrono: <span id="chrono">0</span> ms</div>
+</div>
+<div id="bottom">Rendu GPU zero-copy · VirtualDisplay → MediaCodec (H.264) · WebView hardware</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var canvas = document.getElementById("stage");
+  var ctx = canvas.getContext("2d", { alpha: false });
+  var framesEl = document.getElementById("frames");
+  var fpsEl = document.getElementById("fps");
+  var chronoEl = document.getElementById("chrono");
+  var badgeEl = document.getElementById("badge");
+
+  var startTime = performance.now();
+  var frameCount = 0;
+  var fpsWindowStart = startTime;
+  var fpsWindowFrames = 0;
+
+  var PARTICLE_COUNT = 26;
+  var particles = [];
+
+  function createParticles(w, h) {
+    particles = [];
+    for (var i = 0; i < PARTICLE_COUNT; i++) {
+      particles.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        r: 10 + Math.random() * (Math.min(w, h) * 0.05),
+        vx: (Math.random() * 2 - 1) * (w * 0.06),
+        vy: (Math.random() * 2 - 1) * (h * 0.06),
+        hue: Math.random() * 360
+      });
+    }
+  }
+
+  function resize() {
+    var w = Math.max(1, window.innerWidth);
+    var h = Math.max(1, window.innerHeight);
+    canvas.width = w;
+    canvas.height = h;
+    createParticles(w, h);
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  function drawBackground(t) {
+    var w = canvas.width, h = canvas.height;
+    var shift = (t * 0.02) % 360;
+    var grad = ctx.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, "hsl(" + ((shift + 220) % 360) + ", 70%, 12%)");
+    grad.addColorStop(0.5, "hsl(" + ((shift + 265) % 360) + ", 65%, 18%)");
+    grad.addColorStop(1, "hsl(" + ((shift + 300) % 360) + ", 70%, 10%)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  function drawWave(t) {
+    var w = canvas.width, h = canvas.height;
+    var baseY = h * 0.82;
+    ctx.beginPath();
+    ctx.lineWidth = Math.max(2, h * 0.004);
+    ctx.strokeStyle = "rgba(124, 246, 255, 0.6)";
+    for (var x = 0; x <= w; x += 8) {
+      var y = baseY + Math.sin(x * 0.012 + t * 0.004) * (h * 0.045);
+      if (x === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+    }
+    ctx.stroke();
+  }
+
+  function drawParticles(dt) {
+    var w = canvas.width, h = canvas.height;
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      if (p.x - p.r < 0) { p.x = p.r; p.vx = Math.abs(p.vx); }
+      if (p.x + p.r > w) { p.x = w - p.r; p.vx = -Math.abs(p.vx); }
+      if (p.y - p.r < 0) { p.y = p.r; p.vy = Math.abs(p.vy); }
+      if (p.y + p.r > h) { p.y = h - p.r; p.vy = -Math.abs(p.vy); }
+
+      var glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 2.2);
+      glow.addColorStop(0, "hsla(" + p.hue + ", 95%, 70%, 0.9)");
+      glow.addColorStop(1, "hsla(" + p.hue + ", 95%, 60%, 0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 2.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "hsl(" + p.hue + ", 90%, 75%)";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawRing(t) {
+    var w = canvas.width, h = canvas.height;
+    var cx = w / 2, cy = h / 2;
+    var radius = Math.min(w, h) * 0.28;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(t * 0.0006);
+    ctx.lineWidth = Math.max(2, Math.min(w, h) * 0.006);
+    for (var k = 0; k < 3; k++) {
+      var r = radius * (1 - k * 0.18) + Math.sin(t * 0.002 + k) * radius * 0.05;
+      ctx.beginPath();
+      ctx.strokeStyle = "hsla(" + ((t * 0.08 + k * 60) % 360) + ", 90%, 65%, 0.85)";
+      ctx.arc(0, 0, r, k * 2.1, k * 2.1 + Math.PI * 1.35);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function frame(now) {
+    var dt = Math.min(0.05, (now - (frame.lastTime || now)) / 1000);
+    frame.lastTime = now;
+
+    drawBackground(now);
+    drawWave(now);
+    drawParticles(dt);
+    drawRing(now);
+
+    frameCount++;
+    framesEl.textContent = frameCount;
+    chronoEl.textContent = Math.round(now - startTime);
+
+    if (now - fpsWindowStart >= 500) {
+      var fps = Math.round((frameCount - fpsWindowFrames) * 1000 / (now - fpsWindowStart));
+      fpsEl.textContent = fps;
+      if (fps < 45) {
+        badgeEl.textContent = "● RALENTI";
+        badgeEl.style.color = "#ffb35c";
+      } else {
+        badgeEl.textContent = "● LIVE";
+        badgeEl.style.color = "#9dff8a";
+      }
+      fpsWindowStart = now;
+      fpsWindowFrames = frameCount;
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+# webrenderapp — Hyperframe PoC
+
+Preuve de concept de **rendu vidéo headless** : une `WebView` Android rendue sur un `VirtualDisplay` **privé**, encodée en temps réel en MP4 via `MediaCodec`/`MediaMuxer`, pilotable à distance via le protocole **CDP** (Chrome DevTools Protocol).
+
+## Architecture
+
+- `HeadlessRenderService` (service foreground `specialUse`) orchestre le pipeline :
+  1. `MediaCodec` (H.264, 1280×720 @ 60 fps) + son `inputSurface`
+  2. `VirtualDisplay` **privé** (`OWN_CONTENT_ONLY`) attaché à la surface de l'encodeur
+  3. `Presentation` contenant une `WebView` **accélération matérielle** (`LAYER_TYPE_HARDWARE`)
+  4. `MediaMuxer` écrivant dans `MediaStore.Downloads` (scoped storage, zéro permission stockage)
+  5. Relais TCP `127.0.0.1:9222` → socket Unix `webview_devtools_remote_<pid>` (Puppeteer/CDP)
+- L'Activity ne fait qu'amorcer le service puis se termine : aucune interface visible.
+
+## Garde-fous respectés (Section 3 de la spec)
+
+- Zéro readback CPU : aucun `Bitmap`, `PixelCopy`, `glReadPixels` ni `MediaProjection` — le flux reste 100 % matériel.
+- Zéro ADB : tout fonctionne sur l'appareil, seul.
+- `compileSdk` / `targetSdk` = 36, `minSdk` = 29.
+- `network_security_config` limité à `127.0.0.1` / `localhost` (cleartext uniquement vers ces hôtes).
+- Enregistrement dans `MediaStore.Downloads` uniquement.
+
+## Build
+
+```bash
+./gradlew assembleDebug
+```
+
+APK produit : `app/build/outputs/apk/debug/app-debug.apk` (~3.8 Mo).
+
+Prérequis : JDK 17, Android SDK 36, AGP 8.11.0, Kotlin 1.9.22.
+
+## Observation des logs
+
+```bash
+logcat -s HyperframePoC
+```
+
+Les 7 logs obligatoires de la Section 5 de la spec : `[MAIN]`, `[INIT]`, `[VD]`, `[WEBVIEW]`, `[MUXER]`, `[CDP]`, `[STATS]`, plus `[STOP]` à l'arrêt propre.
+
+## Test manuel
+
+Voir [`docs/MANUAL_TEST_CHECKLIST.md`](docs/MANUAL_TEST_CHECKLIST.md) et la spec complète ([`docs/AGENT_SPEC_PHASE1.md`](docs/AGENT_SPEC_PHASE1.md)).
+
+## Avertissement
+
+PoC expérimental : non destiné à la production. L'encodage 1080p60 en permanence consomme batterie et thermique — prévoir un appareil alimenté et un arrêt via l'action `STOP` du service (finalisation propre du MP4).

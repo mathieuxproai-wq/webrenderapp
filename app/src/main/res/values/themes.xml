@@ -1,0 +1,28 @@
+<resources>
+    <!--
+        Thème de MainActivity (garde-fou 6 : interface headless stricte).
+        Translucide et sans barre d'action : l'activité n'affiche aucune UI,
+        elle enchaîne les permissions, démarre le service puis se termine.
+    -->
+    <style name="Theme.Hyperframe" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:colorAccent">#6750A4</item>
+        <item name="android:statusBarColor">#FF000000</item>
+        <item name="android:navigationBarColor">#FF000000</item>
+    </style>
+
+    <!--
+        Thème de la Presentation affichée sur le VirtualDisplay privé :
+        plein écran, fond noir, sans titre (garde-fous 1 et 5).
+    -->
+    <style name="Theme.Hyperframe.Presentation" parent="android:Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsTranslucent">false</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorAccent">#6750A4</item>
+    </style>
+</resources>

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Hyperframe PoC</string>
+    <string name="notification_title">Hyperframe PoC</string>
+    <string name="notification_stop">Arrêter l\'enregistrement</string>
+</resources>

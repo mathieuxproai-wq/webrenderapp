@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Hyperframe PoC — compagnon Android de rendu web GPU headless zero-copy.
+
+    Garde-fous appliqués (AGENT_SPEC_PHASE1.md, Section 3) :
+      #1 Aucun readback CPU (aucun Bitmap / PixelCopy / glReadPixels / ByteBuffer).
+          Le seul lien rendu -> encodeur est l'inputSurface de MediaCodec.
+      #2 Zéro dépendance externe : pas d'ADB, pas de Shizuku, pas de root,
+          pas de MediaProjection. VirtualDisplay privé (OWN_CONTENT_ONLY).
+      #3 Un seul moteur de rendu : android.webkit.WebView natif.
+      #4 Android 17 / SDK 36 : compileSdk 36, targetSdk 36, minSdk 29,
+          network_security_config limité à 127.0.0.1 / localhost.
+      #5 Anti-gel écran éteint : WAKE_LOCK + PARTIAL_WAKE_LOCK côté service.
+      #6 Headless strict : aucune interface utilisateur.
+      #7 Périmètre strict : écriture locale .mp4 via MediaMuxer + port CDP 9222.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Garde-fou 3 : accès réseau pour le rendu web (127.0.0.1) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Garde-fou 5 : maintien CPU à l'écran éteint -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Service au premier plan (garde-fou 2 : aucun ADB / MediaProjection) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Notification du service + boîte de dialogue de permissions (API 33+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Proposition d'exemption d'optimisation batterie (garde-fou 6) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <application
+        android:allowBackup="false"
+        android:hardwareAccelerated="true"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Hyperframe">
+
+        <!--
+            Garde-fou 6 : MainActivity headless — vérifie/demande POST_NOTIFICATIONS,
+            propose l'exemption batterie, démarre HeadlessRenderService, puis finish().
+        -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@style/Theme.Hyperframe">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            Garde-fou 2 : service de rendu au premier plan de type specialUse
+            (Android 14+). La propriété PROPERTY_SPECIAL_USE_FGS_SUBTYPE est
+            obligatoire pour justifier l'usage hors UI du service.
+        -->
+        <service
+            android:name=".HeadlessRenderService"
+            android:exported="true"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Offscreen GPU Web Rendering" />
+        </service>
+    </application>
+</manifest>
