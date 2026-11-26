@@ -1,8 +1,8 @@
 <resources>
     <!--
-        Thème de MainActivity (garde-fou 6 : interface headless stricte).
-        Translucide et sans barre d'action : l'activité n'affiche aucune UI,
-        elle enchaîne les permissions, démarre le service puis se termine.
+        Thème de base du projet. Depuis la Phase 2 (Checkpoint 3), MainActivity
+        n'est plus headless : elle affiche le tableau de bord de contrôle et
+        utilise Theme.Hyperframe.ControlPanel (sombre et opaque).
     -->
     <style name="Theme.Hyperframe" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
@@ -12,6 +12,22 @@
         <item name="android:colorAccent">#6750A4</item>
         <item name="android:statusBarColor">#FF000000</item>
         <item name="android:navigationBarColor">#FF000000</item>
+    </style>
+
+    <!--
+        Phase 2 (Checkpoint 3) : thème sombre sobre du tableau de bord.
+        Opaque (contrairement au thème translucide de la Phase 1), sans barre
+        d'action, boutons larges via le layout activity_main.xml.
+    -->
+    <style name="Theme.Hyperframe.ControlPanel" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@color/panel_background</item>
+        <item name="android:colorAccent">@color/panel_accent</item>
+        <item name="android:statusBarColor">#FF000000</item>
+        <item name="android:navigationBarColor">#FF000000</item>
+        <item name="android:colorControlNormal">@color/panel_section_text</item>
+        <item name="android:textColorPrimary">@color/panel_primary_text</item>
+        <item name="android:textColorSecondary">@color/panel_secondary_text</item>
     </style>
 
     <!--

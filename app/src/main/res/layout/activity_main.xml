@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Phase 2 (Checkpoint 3) — Tableau de bord de contrôle de HeadlessRenderService.
+
+    Garde-fous appliqués :
+      - UI ultra-légère : XML Android standard (ScrollView / LinearLayout /
+        TextView / EditText / Button / RadioGroup), pas de Jetpack Compose.
+      - Isolation totale du moteur zero-copy : cette interface ne fait que
+        commander le service via Intents (START / LOAD_URL / STOP) et lire
+        l'état partagé RenderState ; elle ne touche jamais à la WebView ni
+        au VirtualDisplay, qui restent dans HeadlessRenderService.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/panel_background"
+    android:fillViewport="true"
+    android:scrollbars="none">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Titre + badge d'état -->
+        <TextView
+            android:id="@+id/tv_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/dashboard_title"
+            android:textColor="@color/panel_primary_text"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_status_badge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/badge_stopped"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="6dp"
+            android:text="@string/status_stopped"
+            android:textColor="@color/badge_stopped_text"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <!-- Section : moteur & API locales -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="@string/section_engine"
+            android:textColor="@color/panel_section_text"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textAllCaps="true" />
+
+        <TextView
+            android:id="@+id/tv_cdp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:fontFamily="monospace"
+            android:text="@string/label_cdp_port"
+            android:textColor="@color/panel_secondary_text"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tv_http"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:fontFamily="monospace"
+            android:text="@string/label_http_port"
+            android:textColor="@color/panel_secondary_text"
+            android:textSize="13sp" />
+
+        <!-- Jeton Bearer + copie -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/label_token"
+                android:textColor="@color/panel_secondary_text"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/btn_copy_token"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minHeight="40dp"
+                android:text="@string/btn_copy_token"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tv_token_value"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="middle"
+            android:fontFamily="monospace"
+            android:singleLine="true"
+            android:textColor="@color/panel_secondary_text"
+            android:textIsSelectable="true"
+            android:textSize="12sp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp" />
+
+        <!-- Compteur de frames + chemin du MP4 -->
+        <TextView
+            android:id="@+id/tv_frames"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/label_frames"
+            android:textColor="@color/panel_primary_text"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tv_mp4"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:ellipsize="middle"
+            android:singleLine="true"
+            android:text="@string/label_mp4_path"
+            android:textColor="@color/panel_secondary_text"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tv_current_url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:ellipsize="middle"
+            android:singleLine="true"
+            android:text="@string/label_current_url"
+            android:textColor="@color/panel_secondary_text"
+            android:textSize="12sp" />
+
+        <!-- Section : contrôles -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="@string/section_controls"
+            android:textColor="@color/panel_section_text"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textAllCaps="true" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/label_url_field"
+            android:textColor="@color/panel_secondary_text"
+            android:textSize="13sp" />
+
+        <EditText
+            android:id="@+id/et_url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:hint="@string/hint_url"
+            android:imeOptions="actionDone"
+            android:inputType="textUri"
+            android:singleLine="true"
+            android:text="@string/default_url_field" />
+
+        <Button
+            android:id="@+id/btn_test_asset"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:text="@string/btn_test_asset"
+            android:textSize="13sp" />
+
+        <!-- Sélecteur de résolution -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/label_resolution"
+            android:textColor="@color/panel_secondary_text"
+            android:textSize="13sp" />
+
+        <RadioGroup
+            android:id="@+id/rg_resolution"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rb_720"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:checked="true"
+                android:text="@string/res_720"
+                android:textColor="@color/panel_primary_text"
+                android:textSize="13sp" />
+
+            <RadioButton
+                android:id="@+id/rb_1080"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/res_1080"
+                android:textColor="@color/panel_primary_text"
+                android:textSize="13sp" />
+        </RadioGroup>
+
+        <!-- Boutons d'action principaux -->
+        <Button
+            android:id="@+id/btn_start"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:minHeight="56dp"
+            android:text="@string/btn_start_render"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btn_load"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="52dp"
+            android:text="@string/btn_load_url"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btn_stop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="52dp"
+            android:text="@string/btn_stop_finalize"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btn_permissions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:minHeight="52dp"
+            android:text="@string/btn_permissions_battery"
+            android:textSize="13sp" />
+    </LinearLayout>
+</ScrollView>

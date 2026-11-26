@@ -107,6 +107,21 @@ class HeadlessRenderService : Service() {
     private val cdpConnectionThreads = ConcurrentLinkedQueue<Thread>()
 
     // ---------------------------------------------------------------------
+    // Phase 2 (CP2) : serveur HTTP de contrôle + garde-fou 4 (MP4)
+    // ---------------------------------------------------------------------
+
+    @Volatile private var controlServer: LocalControlHttpServer? = null
+
+    /** Paramètres d'un START en attente de la finalisation du MP4 en cours. */
+    private data class PendingStart(val url: String, val width: Int, val height: Int, val fps: Int)
+
+    @Volatile private var pendingRestart: PendingStart? = null
+    @Volatile private var lastFinalizedFile: String? = null
+    @Volatile private var lastStopFinalized: Boolean = false
+    private val teardownInProgress = AtomicBoolean(false)
+    @Volatile private var stopCompletionLatch: CountDownLatch? = null
+
+    // ---------------------------------------------------------------------
     // Presentation : WebView matérielle rendue sur le VirtualDisplay privé
     // ---------------------------------------------------------------------
 
@@ -170,7 +185,18 @@ class HeadlessRenderService : Service() {
         // Garde-fou 3 : débogage WebView (CDP) activé, pas d'ADB requis.
         WebView.setWebContentsDebuggingEnabled(true)
         createNotificationChannel()
+        // Phase 2 (CP2) : serveur de contrôle HTTP local 127.0.0.1:8765.
+        startControlServer()
         Log.i(TAG, "[INIT] Service créé, pid=${android.os.Process.myPid()}")
+    }
+
+    /** Phase 2 (CP2) : démarrage du serveur de contrôle HTTP local. */
+    private fun startControlServer() {
+        if (controlServer != null) return
+        val server = LocalControlHttpServer(applicationContext, HttpControlPlane())
+        controlServer = server
+        // Démarrage hors thread principal (bind/accept + lecture du jeton).
+        Thread({ server.start() }, "HyperframeHttpBoot").start()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -182,28 +208,18 @@ class HeadlessRenderService : Service() {
 
             ACTION_STOP -> {
                 startForegroundIfNeeded("Arrêt en cours…")
+                // Annule tout redémarrage planifié (garde-fou 4).
+                pendingRestart = null
                 requestStop("Commande STOP reçue")
             }
 
             else -> { // ACTION_START / null (redelivery du système)
                 startForegroundIfNeeded(getString(R.string.notification_title))
                 val url = intent?.getStringExtra(EXTRA_URL) ?: DEFAULT_URL
-                val width = clampDimension(
-                    intent?.getIntExtra(EXTRA_WIDTH, DEFAULT_WIDTH) ?: DEFAULT_WIDTH, MAX_WIDTH
-                )
-                val height = clampDimension(
-                    intent?.getIntExtra(EXTRA_HEIGHT, DEFAULT_HEIGHT) ?: DEFAULT_HEIGHT, MAX_HEIGHT
-                )
-                val fps = clampFps(intent?.getIntExtra(EXTRA_FPS, DEFAULT_FPS) ?: DEFAULT_FPS)
-                if (pipelineActive.get()) {
-                    Log.i(
-                        TAG,
-                        "[PIPE] START ignoré : pipeline déjà actif " +
-                            "(utiliser ACTION_LOAD_URL ou ACTION_STOP)"
-                    )
-                } else {
-                    startPipeline(url, width, height, fps)
-                }
+                val width = intent?.getIntExtra(EXTRA_WIDTH, DEFAULT_WIDTH) ?: DEFAULT_WIDTH
+                val height = intent?.getIntExtra(EXTRA_HEIGHT, DEFAULT_HEIGHT) ?: DEFAULT_HEIGHT
+                val fps = intent?.getIntExtra(EXTRA_FPS, DEFAULT_FPS) ?: DEFAULT_FPS
+                requestStartInternal(url, width, height, fps)
             }
         }
         return START_NOT_STICKY
@@ -212,6 +228,15 @@ class HeadlessRenderService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        // Phase 2 (CP2) : arrêt propre du serveur HTTP de contrôle.
+        try { controlServer?.stop() } catch (e: Exception) {
+            Log.e(TAG, "[STOP] controlServer: ${e.message}")
+        }
+        controlServer = null
+        pendingRestart = null
+        // Télémétrie UI (Phase 2, CP3) : badge ARRÊTÉ.
+        RenderState.running = false
+
         // Garde-fou 5 : libération systématique du WakeLock dans onDestroy().
         stopFrameKeeper()
         stopCdpProxy()
@@ -245,6 +270,13 @@ class HeadlessRenderService : Service() {
         currentWidth = width
         currentHeight = height
         currentFps = fps
+
+        // Télémétrie UI (Phase 2, CP3) : état partagé du tableau de bord.
+        RenderState.running = true
+        RenderState.url = url
+        RenderState.fps = fps
+        RenderState.framesEncoded = 0
+        RenderState.lastFinalizedFile = lastFinalizedFile
 
         try {
             // Garde-fou 5 : notification de premier plan + PARTIAL_WAKE_LOCK.
@@ -373,6 +405,8 @@ class HeadlessRenderService : Service() {
                                 buffer.limit(info.offset + info.size)
                                 mux.writeSampleData(trackIndex, buffer, info)
                                 val count = frameCount.incrementAndGet()
+                                // Télémétrie UI (Phase 2, CP3) : compteur en direct.
+                                RenderState.framesEncoded = count
                                 if (count % STATS_INTERVAL_FRAMES == 0L) {
                                     Log.i(TAG, "[STATS] Frames encodées: $count")
                                 }
@@ -406,14 +440,97 @@ class HeadlessRenderService : Service() {
     // ---------------------------------------------------------------------
 
     private fun requestStop(reason: String) {
+        if (teardownInProgress.get()) {
+            Log.i(TAG, "[STOP] Arrêt déjà en cours, requête ignorée ($reason)")
+            return
+        }
         if (!pipelineActive.get()) {
             Log.i(TAG, "[STOP] Aucun pipeline actif ($reason), arrêt du service.")
             stopForegroundAndService()
             return
         }
-        val stopper = Thread({ teardownPipeline(reason) }, "HyperframeStopper")
+        if (!teardownInProgress.compareAndSet(false, true)) return
+        stopCompletionLatch = CountDownLatch(1)
+        val stopper = Thread({
+            try {
+                teardownPipeline(reason)
+            } finally {
+                teardownInProgress.set(false)
+            }
+        }, "HyperframeStopper")
         stopper.isDaemon = true
         stopper.start()
+    }
+
+    /**
+     * Garde-fou 4 : si un enregistrement est déjà actif, fermer proprement
+     * l'ancien MediaMuxer (STOP interne) avant d'en démarrer un nouveau,
+     * afin d'éviter toute corruption du fichier MP4.
+     */
+    private fun requestStartInternal(url: String, width: Int, height: Int, fps: Int) {
+        val startParams = PendingStart(
+            url = url.ifBlank { DEFAULT_URL },
+            width = clampDimension(if (width > 0) width else DEFAULT_WIDTH, MAX_WIDTH),
+            height = clampDimension(if (height > 0) height else DEFAULT_HEIGHT, MAX_HEIGHT),
+            fps = clampFps(if (fps > 0) fps else DEFAULT_FPS)
+        )
+        if (pipelineActive.get() || teardownInProgress.get()) {
+            pendingRestart = startParams
+            Log.i(
+                TAG,
+                "[PIPE] START alors que pipeline actif : STOP interne puis redémarrage " +
+                    "(garde-fou 4), nouvelle url=${startParams.url}"
+            )
+            requestStop("Nouveau START (garde-fou 4 : finalisation de l'ancien MP4)")
+            if (!teardownInProgress.get() && !pipelineActive.get()) {
+                // L'arrêt s'est déjà terminé : consommer immédiatement la demande.
+                val pending = pendingRestart
+                pendingRestart = null
+                if (pending != null) {
+                    mainHandler.post {
+                        startPipeline(pending.url, pending.width, pending.height, pending.fps)
+                    }
+                }
+            }
+        } else {
+            mainHandler.post {
+                startPipeline(startParams.url, startParams.width, startParams.height, startParams.fps)
+            }
+        }
+    }
+
+    /** Arrêt bloquant pour l'endpoint HTTP /stop (finalisation MP4 incluse). */
+    private fun requestStopBlocking(): LocalControlHttpServer.StopOutcome {
+        // Un /stop explicite annule tout redémarrage planifié (garde-fou 4).
+        pendingRestart = null
+        val active = pipelineActive.get()
+        val tearing = teardownInProgress.get()
+        if (!active && !tearing) {
+            Log.i(TAG, "[HTTP] /stop : aucun pipeline actif (réponse idle)")
+            return LocalControlHttpServer.StopOutcome(
+                stopped = true,
+                finalized = lastStopFinalized,
+                file = lastFinalizedFile
+            )
+        }
+        if (!tearing) {
+            requestStop("Commande HTTP /stop")
+        }
+        val latch = stopCompletionLatch
+            ?: return LocalControlHttpServer.StopOutcome(
+                stopped = true,
+                finalized = lastStopFinalized,
+                file = lastFinalizedFile
+            )
+        val finished = latch.await(HTTP_STOP_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        if (!finished) {
+            Log.e(TAG, "[HTTP] /stop : délai dépassé (${HTTP_STOP_TIMEOUT_MS} ms)")
+        }
+        return LocalControlHttpServer.StopOutcome(
+            stopped = finished,
+            finalized = lastStopFinalized,
+            file = lastFinalizedFile
+        )
     }
 
     private fun teardownPipeline(reason: String) {
@@ -490,7 +607,30 @@ class HeadlessRenderService : Service() {
         releaseWakeLock()
 
         pipelineActive.set(false)
-        stopForegroundAndService()
+        lastStopFinalized = finalized
+        // Télémétrie UI (Phase 2, CP3) : badge ARRÊTÉ + dernier MP4.
+        RenderState.running = false
+        RenderState.outputFile = lastFinalizedFile
+        RenderState.lastFinalizedFile = lastFinalizedFile
+        stopCompletionLatch?.countDown()
+        stopCompletionLatch = null
+
+        // Garde-fou 4 : un START reçu pendant l'enregistrement planifie un
+        // redémarrage une fois l'ancien MP4 proprement finalisé.
+        val restart = pendingRestart
+        pendingRestart = null
+        if (restart != null) {
+            Log.i(
+                TAG,
+                "[PIPE] Redémarrage planifié (garde-fou 4) : ${restart.url} " +
+                    "${restart.width}x${restart.height} @ ${restart.fps}fps"
+            )
+            mainHandler.post {
+                startPipeline(restart.url, restart.width, restart.height, restart.fps)
+            }
+        } else {
+            stopForegroundAndService()
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -508,6 +648,8 @@ class HeadlessRenderService : Service() {
             try {
                 currentUrl = url
                 renderPresentation.webView.loadUrl(url)
+                // Télémétrie UI (Phase 2, CP3) : URL en cours.
+                RenderState.url = url
                 Log.i(TAG, "[WEBVIEW] URL chargée à chaud: $url")
                 updateNotificationText("Rendu: $url")
             } catch (e: Exception) {
@@ -565,6 +707,8 @@ class HeadlessRenderService : Service() {
         outputUri = uri
         outputParcelFileDescriptor = resolver.openFileDescriptor(uri, "rw")
             ?: throw IllegalStateException("openFileDescriptor($uri) a renvoyé null")
+        // Télémétrie UI (Phase 2, CP3) : fichier MP4 en cours d'écriture.
+        RenderState.outputFile = uri.toString()
         Log.i(TAG, "[MUXER] Destination MediaStore préparée: $uri")
     }
 
@@ -573,6 +717,9 @@ class HeadlessRenderService : Service() {
         try {
             val values = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
             contentResolver.update(uri, values, null, null)
+            lastFinalizedFile = uri.toString()
+            // Télémétrie UI (Phase 2, CP3) : dernier MP4 finalisé.
+            RenderState.lastFinalizedFile = lastFinalizedFile
             Log.i(TAG, "[MUXER] MP4 disponible dans Téléchargements: $uri")
         } catch (e: Exception) {
             Log.e(TAG, "[MUXER] Finalisation MediaStore: ${e.message}")
@@ -858,6 +1005,46 @@ class HeadlessRenderService : Service() {
     }
 
     // ---------------------------------------------------------------------
+    // Contrat ControlPlane du serveur HTTP de contrôle (Phase 2, CP2)
+    // ---------------------------------------------------------------------
+
+    private inner class HttpControlPlane : LocalControlHttpServer.ControlPlane {
+
+        override val isRunning: Boolean
+            get() = pipelineActive.get()
+
+        override val currentUrl: String
+            get() = this@HeadlessRenderService.currentUrl
+
+        override val currentFps: Int
+            get() = this@HeadlessRenderService.currentFps
+
+        override val framesEncoded: Long
+            get() = frameCount.get()
+
+        override val cdpPort: Int
+            get() = CDP_PROXY_PORT
+
+        override val outputFile: String?
+            get() = outputUri?.toString() ?: lastFinalizedFile
+
+        override fun requestStart(url: String, width: Int, height: Int, fps: Int): Boolean {
+            requestStartInternal(url, width, height, fps)
+            return true
+        }
+
+        override fun requestLoad(url: String): Boolean {
+            if (!pipelineActive.get()) return false
+            loadUrlHot(url)
+            return true
+        }
+
+        override fun requestStopBlocking(): LocalControlHttpServer.StopOutcome {
+            return this@HeadlessRenderService.requestStopBlocking()
+        }
+    }
+
+    // ---------------------------------------------------------------------
     // Constantes
     // ---------------------------------------------------------------------
 
@@ -895,5 +1082,6 @@ class HeadlessRenderService : Service() {
         private const val STATS_INTERVAL_FRAMES = 120L
         private const val TEARDOWN_JOIN_TIMEOUT_MS = 5000L
         private const val RUN_ON_MAIN_SYNC_TIMEOUT_MS = 5000L
+        private const val HTTP_STOP_TIMEOUT_MS = 10_000L
     }
 }

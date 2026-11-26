@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Badge ARRÊTÉ (Checkpoint 3) : arrondi gris. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/badge_stopped_background" />
+    <corners android:radius="14dp" />
+</shape>

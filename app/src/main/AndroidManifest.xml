@@ -11,7 +11,9 @@
       #4 Android 17 / SDK 36 : compileSdk 36, targetSdk 36, minSdk 29,
           network_security_config limité à 127.0.0.1 / localhost.
       #5 Anti-gel écran éteint : WAKE_LOCK + PARTIAL_WAKE_LOCK côté service.
-      #6 Headless strict : aucune interface utilisateur.
+      #6 Phase 1 : headless strict. Phase 2 (CP3) : MainActivity devient un
+         panneau de contrôle XML léger qui pilote le service (le moteur
+         zero-copy, lui, reste 100 % dans HeadlessRenderService).
       #7 Périmètre strict : écriture locale .mp4 via MediaMuxer + port CDP 9222.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -41,15 +43,15 @@
         android:theme="@style/Theme.Hyperframe">
 
         <!--
-            Garde-fou 6 : MainActivity headless — vérifie/demande POST_NOTIFICATIONS,
-            propose l'exemption batterie, démarre HeadlessRenderService, puis finish().
+            Phase 2 (Checkpoint 3) : MainActivity = panneau de contrôle
+            persistant (plus de finish() ni de noHistory). Elle pilote
+            HeadlessRenderService via Intents et n'affiche jamais la
+            WebView ni le VirtualDisplay (garde-fou 1 inchangé).
         -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:theme="@style/Theme.Hyperframe">
+            android:theme="@style/Theme.Hyperframe.ControlPanel">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

@@ -2,4 +2,40 @@
     <string name="app_name">Hyperframe PoC</string>
     <string name="notification_title">Hyperframe PoC</string>
     <string name="notification_stop">Arrêter l\'enregistrement</string>
+
+    <!-- Phase 2 (Checkpoint 3) : tableau de bord de contrôle -->
+    <string name="dashboard_title">Hyperframe PoC — Tableau de bord</string>
+    <string name="status_active">● ACTIF</string>
+    <string name="status_stopped">● ARRÊTÉ</string>
+    <string name="section_engine">Moteur &amp; API locales</string>
+    <string name="label_cdp_port">CDP (débogage WebView) : 127.0.0.1:9222</string>
+    <string name="label_http_port">API HTTP de contrôle : 127.0.0.1:8765</string>
+    <string name="label_token">Jeton Bearer (auth HTTP)</string>
+    <string name="btn_copy_token">Copier Token</string>
+    <string name="label_frames">Frames encodées : 0</string>
+    <string name="label_mp4_path">Dernier MP4 : —</string>
+    <string name="label_current_url">URL en cours : —</string>
+    <string name="label_frames_template">Frames encodées : %1$d</string>
+    <string name="label_mp4_path_template">Dernier MP4 : %1$s</string>
+    <string name="label_current_url_template">URL en cours : %1$s</string>
+    <string name="value_none">—</string>
+    <string name="value_token_pending">(généré au démarrage du service)</string>
+    <string name="section_controls">Contrôles</string>
+    <string name="label_url_field">URL à rendre</string>
+    <string name="hint_url">http://127.0.0.1:3000</string>
+    <string name="default_url_field">http://127.0.0.1:3000</string>
+    <string name="btn_test_asset">Test Asset (file:///android_asset/test.html)</string>
+    <string name="label_resolution">Résolution du VirtualDisplay</string>
+    <string name="res_720">1280×720</string>
+    <string name="res_1080">1920×1080</string>
+    <string name="btn_start_render">DÉMARRER LE RENDU</string>
+    <string name="btn_load_url">CHARGER URL</string>
+    <string name="btn_stop_finalize">ARRÊTER &amp; FINALISER MP4</string>
+    <string name="btn_permissions_battery">Permissions &amp; Batterie</string>
+    <string name="toast_token_copied">Jeton Bearer copié dans le presse-papiers</string>
+    <string name="toast_token_missing">Jeton non encore généré (démarre le service)</string>
+    <string name="toast_service_not_running">Le service n\'est pas actif</string>
+    <string name="toast_start_sent">Démarrage du rendu demandé</string>
+    <string name="toast_load_sent">Chargement de l\'URL demandé</string>
+    <string name="toast_stop_sent">Arrêt &amp; finalisation du MP4 demandés</string>
 </resources>
