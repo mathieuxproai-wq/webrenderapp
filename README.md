@@ -10,7 +10,24 @@ Preuve de concept de **rendu vidéo headless** : une `WebView` Android rendue su
   3. `Presentation` contenant une `WebView` **accélération matérielle** (`LAYER_TYPE_HARDWARE`)
   4. `MediaMuxer` écrivant dans `MediaStore.Downloads` (scoped storage, zéro permission stockage)
   5. Relais TCP `127.0.0.1:9222` → socket Unix `webview_devtools_remote_<pid>` (Puppeteer/CDP)
-- L'Activity ne fait qu'amorcer le service puis se termine : aucune interface visible.
+- `MainActivity` est un **tableau de bord de contrôle** (Phase 2) : badge ACTIF/ARRÊTÉ, compteur de frames en direct, chemin du MP4, URL en cours, choix de résolution 720p/1080p — elle pilote le service **exclusivement par Intents** et ne touche jamais à la WebView ni au VirtualDisplay.
+
+## API de contrôle locale (Phase 2)
+
+`LocalControlHttpServer` écoute **exclusivement sur `127.0.0.1:8765`** (jamais `0.0.0.0`), compatible avec le cloisonnement réseau local d'Android 17. Authentification : jeton Bearer généré au démarrage du service (`filesDir/auth_token.txt`, copiable depuis le tableau de bord) ; seul `GET /health` est ouvert.
+
+| Endpoint | Corps | Effet |
+|---|---|---|
+| `GET /health` | — | `{"status":"ok","service_running":bool}` (ouvert, sans jeton) |
+| `GET /status` | — | état du pipeline : `running`, `url`, `fps`, `frames_encoded`, `cdp_port`, `output_file` |
+| `POST /start` | `{"url","width","height","fps"}` | démarre le rendu (finalise proprement l'ancien MP4 si besoin — garde-fou 4) |
+| `POST /load` | `{"url"}` | chargement à chaud dans la WebView active, sans couper le MediaMuxer |
+| `POST /stop` | — | arrêt **bloquant** : finalise le MP4 avant de répondre |
+
+```bash
+TOKEN=$(cat /data/data/com.hyperframe.render/files/auth_token.txt)
+curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8765/status
+```
 
 ## Garde-fous respectés (Section 3 de la spec)
 
@@ -44,4 +61,4 @@ Voir [`docs/MANUAL_TEST_CHECKLIST.md`](docs/MANUAL_TEST_CHECKLIST.md) et la spec
 
 ## Avertissement
 
-PoC expérimental : non destiné à la production. L'encodage 1080p60 en permanence consomme batterie et thermique — prévoir un appareil alimenté et un arrêt via l'action `STOP` du service (finalisation propre du MP4).
+PoC expérimental : non destiné à la production. L'encodage 1080p60 en permanence consomme batterie et thermique — prévoir un appareil alimenté et un arrêt via le bouton **ARRÊTER & FINALISER MP4** du tableau de bord, l'endpoint `POST /stop`, ou l'action `STOP` du service (finalisation propre du MP4).
